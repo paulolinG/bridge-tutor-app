@@ -17,6 +17,8 @@ A core differentiator of Bridge AI is its **Delta Growth Tracking System**, whic
   * *Security Note:* All generative AI API interactions and administrative tasks execute strictly server-side to protect operational API keys.
 * **Database & Auth:** Supabase
   * Stores tutor profiles, verification states, availability matrices, and lesson history.
+  * **Auth:** Supabase Auth, magic-link (passwordless) sign-in. Tutor accounts only for now — students have no login anywhere in the product and are identified by WhatsApp phone number instead.
+* **Backend Hosting:** Render, free web-service tier. The Matching Engine's hourly batch run is triggered by Supabase's `pg_cron` + `pg_net` extensions calling a backend endpoint over HTTP, protected by a shared-secret header (it's reachable from the public internet).
 * **Core Data Structures:** Student and tutor profiles mapping microtopic competencies (e.g., `"Physics: Kinematics"`).
 * **Realtime/Video:** Daily.co, free tier (10,000 participant-minutes/month, no credit card required) — comfortably covers pilot-scale volume.
 * **Shared Whiteboard:** An embedded open-source library (e.g., tldraw or Excalidraw) rather than a custom-built canvas.
@@ -42,39 +44,47 @@ Before volunteers can accept tutoring sessions, they must pass an automated teac
       * **Organization (20 pts):** Structure of the lesson plan and scheduling reliability.
   * **Onboarding Threshold:** A simulation score of 70/100 or higher is the pass gate. Academic grade, test performance, and extracurricular standing are informational fields shown to admins, not folded into the score.
   * **Out of Scope:** Identity verification and background-check vetting are handled by a separate manual/external process, not modeled in this system.
+  * **Post-Certification Onboarding:** A certified tutor must complete a one-time availability + capacity form (also editable later in account settings) before entering the Matching Engine's pool.
 
 ### 2\. Algorithmic Matching Engine
 
-To prevent first-come, first-served inefficiencies, matching runs on an hourly batch schedule governed by a randomized domain-selection algorithm: the **domain** is the set of tutors available during the student's requested window who still have weekly capacity remaining; a tutor is then selected **randomly** from that domain to ensure fairness rather than favoring whoever responds fastest.
+To prevent first-come, first-served inefficiencies, matching runs on an hourly batch schedule governed by a randomized domain-selection algorithm: the **domain** is the set of tutors available during the student's requested window, with remaining weekly capacity, and certified in the request's exact microtopic (via `tutor_microtopic_competencies`); a tutor is then selected **randomly** from that domain to ensure fairness rather than favoring whoever responds fastest.
 
-  * **Priority Scoring:** Students are assigned an urgency score derived from a multiplier of their current grades and local school board funding deficits (an admin-entered value per region for v1, not an automated external dataset). Tutors are assigned a quality score based on their certification performance.
-  * **Time Normalization:** All inputs are converted into a standardized runtime index of absolute minutes based on Central Time (e.g., 1:30 AM–3:30 AM maps to `90-210`).
+  * **Priority Scoring:** Students are assigned an urgency score derived from a multiplier of their current grades and local school board funding deficits (an admin-entered value per region for v1, not an automated external dataset). When multiple pending requests compete for scarce tutor capacity in a batch run, higher-urgency requests are processed first. Tutors are assigned a quality score based on their certification performance — informational only, shown to admins, never used to bias tutor selection.
+  * **Time Normalization:** All inputs are converted into a standardized runtime index of absolute minutes based on Central Time (e.g., 1:30 AM–3:30 AM maps to `90-210`). Each request carries exactly one fixed window, not a range or set of candidate windows.
   * **Capacity Constraints:** Tutors define daily and weekly caps on volunteer minutes. The algorithm dynamically filters out any tutor whose current commitments or preferred hours conflict with a student's window.
+  * **Session Requests (v1):** Admin-mediated — a coordinator enters a student's request (microtopic, window) directly into the database. WhatsApp-based request intake is a separate, later feature.
+  * **Minimum Lead Time:** A request's window must be at least 2 hours out at entry, so a batch cycle has a realistic chance to match it before it arrives.
+  * **Unmatched Requests:** A request with an empty domain stays `pending` and is re-evaluated on every subsequent hourly run — no special retry logic needed. Once its window passes unmatched, it flips to `unmatched`/`expired`, visible on the admin dashboard; it's never silently dropped.
+  * **Notification (v1):** No automated messaging. A match or an expiration is admin-mediated — the coordinator sees it on the dashboard and reaches out to the student directly. Automating this over WhatsApp would cost real money per message (Meta retired free business-initiated messaging in 2025) and is deferred to the WhatsApp tutoring feature.
 
 ### 3\. Real-Time Session Interaction
 
-  * **AI Teaching Assistant:** Runs background processes during live lessons to create visual assets, render mathematical graphs, and translate terms across language barriers.
+  * **Session Access:** No student login — a matched session is joined via an unauthenticated, single-use link (shared by the admin coordinator per the Matching Engine's notification policy). The call runs on Daily's prebuilt embeddable UI (a single iframe), not a custom video UI.
+  * **AI Teaching Assistant:** Runs background processes during live lessons to create visual assets, render mathematical graphs, and translate terms across language barriers. Visuals are rendered server-side (e.g., via matplotlib/plotly) and inserted onto the whiteboard as a single image asset — the AI does not manipulate the whiteboard's live document/shapes directly.
   * **Shared Workspace:** A collaborative digital whiteboard equipped with AI-powered solution generation.
-  * **Live Error Flagging:** The AI identifies technical mistakes or pedagogical missteps in real time by analyzing whiteboard and chat content only (v1 does not transcribe or analyze live audio), caching them for the tutor's post-session feedback loop.
+  * **Live Error Flagging:** The AI identifies technical mistakes or pedagogical missteps in real time by analyzing whiteboard and chat content only (v1 does not transcribe or analyze live audio), caching them for the tutor's post-session feedback loop. Triggered event-driven and debounced (re-checks once activity pauses after an edit/message) rather than on a fixed polling interval, so AI API usage tracks actual session activity instead of idle time.
 
 ### 4\. High-Accessibility / Low-Data Offline Learning
 
 To serve the \~40% of urban low-income households and \>60% of Indigenous communities lacking reliable high-speed internet, Bridge AI acts as an asynchronous learning bridge:
 
   * **WhatsApp-Based Tutoring:** Leverages the Meta WhatsApp Cloud API for extreme low-data environments. Students send photos of problems or text questions directly to the Bridge AI bot. The backend receives the media via webhooks and returns AI-generated voice notes or text explanations entirely within the free 24-hour user-initiated service window, eliminating MMS/SMS telecom fees.
+  * **Student Identity:** A student's WhatsApp phone number is their entire identity — there's no student login system anywhere in the product. A message from an unrecognized number auto-creates a minimal student record rather than requiring prior registration.
   * **Low-Data Data Packages:** At the end of an online session, the system compiles highly compressed, downloadable text packages containing fill-in-the-blank summaries, core concept PDFs, and digital flashcards. Claude generates the content as structured JSON; the backend renders it to PDF with WeasyPrint (free, open-source, no external service).
 
 ### 5\. Post-Session Evaluation & The "Continue-Learning" Program
 
 The session workflow does not conclude when the video call disconnects:
 
-1.  **Student Diagnostic:** The student completes a short, tailored AI-generated exit ticket to evaluate concept retention.
-2.  **Tutor Analytics:** The tutor receives an updated score sheet detailing structural strengths, time management optimization, and a Delta Growth metric: the percentage-point difference between a short AI-generated pre-session baseline diagnostic and the post-session exit ticket, scored per microtopic.
-3.  **Next-Step Logic:** The AI generates an automated recommendation tracking whether the student should move to independent practice, schedule a reinforcing lesson on a sub-topic, or advance to the next academic chapter.
+1.  **Pre-Session Baseline:** A short, tailored AI-generated diagnostic delivered as a web form on the same unauthenticated join-link page, right before the student enters the call — not via WhatsApp, so it doesn't depend on the student having WhatsApp open at that exact moment.
+2.  **Student Diagnostic:** The student completes a short, tailored AI-generated exit ticket to evaluate concept retention.
+3.  **Tutor Analytics:** The tutor receives an updated score sheet detailing structural strengths, time management optimization, and a Delta Growth metric: the percentage-point difference between the pre-session baseline diagnostic and the post-session exit ticket, scored per microtopic. Surfaced on the tutor's in-app dashboard (same as match notifications).
+4.  **Next-Step Logic:** The AI generates an automated recommendation tracking whether the student should move to independent practice, schedule a reinforcing lesson on a sub-topic, or advance to the next academic chapter.
 
 
 # Project Status
-Nothing has been implemented nor designed yet.
+Feature 1 (Reverse-AI Tutor Assessment & Certification) is implemented end-to-end. Auth is currently stubbed via a dev bypass in `deps.py`; real Supabase Auth (magic link, tutor-only) is next, before building the Algorithmic Matching Engine. Real-Time Session Interaction, WhatsApp/Low-Data Learning, and Post-Session Evaluation are designed (see below) but not yet built.
 
 # Project Layout
 Single repo, no monorepo tooling: `/frontend` (Next.js) and `/backend` (FastAPI) are independent apps with their own dependencies, run separately.
@@ -117,6 +127,42 @@ The code should be the single source of truth. Documentation should never restat
 - **Show Your Work:** For complex algorithms, architectural decisions, or debugging, wrap your thought process in `<thinking>` tags before outputting the final code.
 - **Surgical Edits:** When modifying existing files, only output the changed functions or blocks. Use `...` to represent unchanged code. Do not rewrite the entire file.
 - **Self-Correction:** If you realize a proposed approach has edge cases (e.g., race conditions), pivot and address them before finishing the response.
+
+
+### General Coding Style
+All constants should have type hints. Additionally, avoid the use of magic constants. A python example is provided below.
+```python3
+# Magic constant
+if score >= 70:
+    return False
+
+# No magic constant with typing hinting
+PASSING_SCORE: int = 70
+if score >= PASSING_SCORE:
+    return False
+```
+
+### General Function Documentation Guidelines
+Use the common convention for adding docstrings for functions and classes depending on the programming langugage.
+
+A python example is provided below:
+```python3
+def divide(a: float, b: float) -> float:
+    """
+    Divide two numbers.
+
+    Args:
+        a: The dividend.
+        b: The divisor.
+
+    Returns:
+        The quotient of a divided by b.
+
+    Raises:
+        ZeroDivisionError: If b is zero.
+    """
+    return a / b
+```
 
 ### Python Coding Style
 

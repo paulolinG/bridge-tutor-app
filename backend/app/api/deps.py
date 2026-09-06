@@ -1,32 +1,37 @@
+from dataclasses import dataclass
 from uuid import UUID
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 from starlette.concurrency import run_in_threadpool
+from supabase_auth.errors import AuthError
 
-from app.core.config import get_settings
 from app.core.supabase import get_supabase
 
 
-async def get_current_tutor(authorization: str | None = Header(default=None)) -> UUID:
-    """Resolves the requesting tutor's id.
+@dataclass
+class AuthUser:
+    id: UUID
+    email: str | None
 
-    Reads a Supabase JWT from the Authorization header when present. Falls back to
-    DEV_AUTH_BYPASS_TUTOR_ID when absent, since this pass has no login/signup UI yet —
-    swap this out for hard JWT enforcement once auth pages land, no route signatures change.
-    """
-    settings = get_settings()
 
+async def get_current_auth_user(authorization: str | None = Header(default=None)) -> AuthUser:
+    """Resolves the requesting user from a Supabase JWT in the Authorization header."""
     if authorization is None:
-        if settings.dev_auth_bypass_tutor_id:
-            return UUID(settings.dev_auth_bypass_tutor_id)
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
     token = authorization.removeprefix("Bearer ").strip()
 
-    def _get_user() -> UUID:
-        response = get_supabase().auth.get_user(token)
+    def _get_user() -> AuthUser:
+        try:
+            response = get_supabase().auth.get_user(token)
+        except AuthError as exc:
+            raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
         if response.user is None:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
-        return UUID(response.user.id)
+        return AuthUser(id=UUID(response.user.id), email=response.user.email)
 
     return await run_in_threadpool(_get_user)
+
+
+async def get_current_tutor(auth_user: AuthUser = Depends(get_current_auth_user)) -> UUID:
+    return auth_user.id

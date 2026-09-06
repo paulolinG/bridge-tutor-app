@@ -6,23 +6,27 @@ import { Button } from "@/components/ui/button";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { RubricScoreCard } from "@/components/certification/RubricScoreCard";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 import {
   endCertification,
   getCertificationState,
   sendCertificationMessage,
 } from "@/lib/api/certification";
 import type { CertificationState } from "@/lib/types/certification";
+import { useRequireAuth } from "@/lib/auth/useRequireAuth";
 
 export default function CertificationSessionPage(
   props: PageProps<"/certification/[id]">,
 ) {
   const { id } = use(props.params);
+  const { checking } = useRequireAuth();
   const queryClient = useQueryClient();
   const queryKey = ["certification", id];
 
   const { data: state, isPending } = useQuery({
     queryKey,
     queryFn: () => getCertificationState(id),
+    enabled: !checking,
   });
 
   const sendMutation = useMutation({
@@ -53,7 +57,7 @@ export default function CertificationSessionPage(
     },
   });
 
-  if (isPending || !state) {
+  if (checking || isPending || !state) {
     return <div className="p-8 text-sm">Loading...</div>;
   }
 
@@ -61,7 +65,10 @@ export default function CertificationSessionPage(
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 p-8">
-      <h1 className="text-xl font-semibold">Tutor certification</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Tutor certification</h1>
+        <SignOutButton />
+      </div>
 
       <ChatWindow messages={state.transcript} />
 

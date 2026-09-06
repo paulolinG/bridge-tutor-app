@@ -9,6 +9,8 @@ CATEGORIES = (
     "organization",
 )
 
+PASSING_SCORE: int = 70
+
 
 class RubricScore(BaseModel):
     subject_knowledge: int = Field(ge=0, le=20)
@@ -20,15 +22,15 @@ class RubricScore(BaseModel):
     organization: int = Field(ge=0, le=20)
     organization_rationale: str
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def total_score(self) -> int:
         return sum(getattr(self, category) for category in CATEGORIES)
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def passed(self) -> bool:
-        return self.total_score >= 70
+        return self.total_score >= PASSING_SCORE
 
     def to_row(self) -> dict[str, Any]:
         """Flattens into the tutor_certifications column shape."""

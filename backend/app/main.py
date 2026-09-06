@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import certification, health, microtopics
+from app.api.routes import certification, health, microtopics, tutors
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -19,3 +19,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(microtopics.router)
 app.include_router(certification.router)
+app.include_router(tutors.router)

@@ -4,29 +4,14 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { CenteredCard } from "@/components/layout/CenteredCard";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 import { listMicrotopics, startCertification } from "@/lib/api/certification";
-
-function CenteredCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Tutor certification</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">{children}</CardContent>
-      </Card>
-    </div>
-  );
-}
+import { useRequireAuth } from "@/lib/auth/useRequireAuth";
 
 export default function CertificationStartPage() {
   const router = useRouter();
+  const { checking } = useRequireAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const {
@@ -36,6 +21,7 @@ export default function CertificationStartPage() {
   } = useQuery({
     queryKey: ["microtopics"],
     queryFn: listMicrotopics,
+    enabled: !checking,
   });
 
   const startMutation = useMutation({
@@ -45,17 +31,17 @@ export default function CertificationStartPage() {
     },
   });
 
-  if (isPending) {
+  if (checking || isPending) {
     return (
-      <CenteredCard>
-        <p className="text-sm">Loading subjects...</p>
+      <CenteredCard title="Tutor certification">
+        <p className="text-sm">Loading...</p>
       </CenteredCard>
     );
   }
 
   if (isError) {
     return (
-      <CenteredCard>
+      <CenteredCard title="Tutor certification">
         <p className="text-sm text-destructive">
           Could not load subjects. Try refreshing the page.
         </p>
@@ -64,10 +50,13 @@ export default function CertificationStartPage() {
   }
 
   return (
-    <CenteredCard>
-      <p className="text-sm text-muted-foreground">
-        Pick a subject to start a practice teaching simulation.
-      </p>
+    <CenteredCard title="Tutor certification">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Pick a subject to start a practice teaching simulation.
+        </p>
+        <SignOutButton />
+      </div>
       <div className="flex flex-col gap-2">
         {microtopics.map((microtopic) => (
           <button

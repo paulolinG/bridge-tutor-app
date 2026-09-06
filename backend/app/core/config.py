@@ -16,8 +16,6 @@ class Settings(BaseSettings):
 
     frontend_origin: str = "http://localhost:3000"
 
-    dev_auth_bypass_tutor_id: str | None = None
-
 
 @lru_cache
 def get_settings() -> Settings:

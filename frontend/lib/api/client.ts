@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/supabase/client";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -15,10 +17,15 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(session && { Authorization: `Bearer ${session.access_token}` }),
       ...init?.headers,
     },
   });
