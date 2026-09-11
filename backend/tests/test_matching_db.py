@@ -221,3 +221,16 @@ def test_create_session_returns_inserted_row(monkeypatch) -> None:
 
     assert result == inserted
     assert ("table", "sessions") in fake.calls
+
+
+def test_list_upcoming_sessions_keeps_a_session_that_has_already_started(monkeypatch) -> None:
+    """A session in progress must stay listed: it is the one the tutor is
+    currently teaching, and the session page is derived from this list."""
+    fake = _FakeSupabaseClient([{"id": str(uuid4())}])
+    monkeypatch.setattr(matching_db, "get_supabase", lambda: fake)
+
+    now = datetime(2026, 1, 5, 18, 0, tzinfo=UTC)
+    asyncio.run(matching_db.list_upcoming_sessions(TUTOR_ID, now))
+
+    assert ("gte", "ends_at", now.isoformat()) in fake.calls
+    assert not any(call[:2] == ("gte", "starts_at") for call in fake.calls)

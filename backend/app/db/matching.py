@@ -237,11 +237,13 @@ async def create_session(
 
 
 async def list_upcoming_sessions(tutor_id: UUID, now: datetime) -> list[dict[str, Any]]:
-    """Fetches a tutor's upcoming scheduled sessions with their microtopic label.
+    """Fetches a tutor's current and upcoming scheduled sessions with their microtopic label.
 
     Args:
         tutor_id: The tutor to fetch sessions for.
-        now: The current time; only sessions starting after this are returned.
+        now: The current time; only sessions ending after this are returned,
+            so a session already in progress stays listed rather than
+            vanishing out from under the tutor teaching it.
 
     Returns:
         Raw session rows including the nested microtopic label, ordered soonest first.
@@ -252,7 +254,7 @@ async def list_upcoming_sessions(tutor_id: UUID, now: datetime) -> list[dict[str
         .select("id, starts_at, ends_at, join_token, session_requests(microtopics(label))")
         .eq("tutor_id", str(tutor_id))
         .eq("status", SCHEDULED)
-        .gte("starts_at", now.isoformat())
+        .gte("ends_at", now.isoformat())
         .order("starts_at")
         .execute()
     )

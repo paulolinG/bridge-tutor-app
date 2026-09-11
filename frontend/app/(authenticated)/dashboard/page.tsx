@@ -11,24 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { listMySessions } from "@/lib/api/sessions";
+import { isJoinOpen } from "@/lib/session/window";
 import { useRequireAuth } from "@/lib/auth/useRequireAuth";
 
 const TORONTO_TIME_ZONE = "America/Toronto";
-
-// Mirrors app/services/sessions.py's JOIN_OPENS_BEFORE_MINUTES /
-// JOIN_CLOSES_AFTER_MINUTES — the backend is the source of truth and
-// re-checks this itself, so a mismatch here only affects when the button
-// enables, never whether the call actually connects.
-const JOIN_OPENS_BEFORE_MINUTES = 15;
-const JOIN_CLOSES_AFTER_MINUTES = 180;
-const MINUTE_MS = 60_000;
-
-function isJoinOpen(startsAt: string, endsAt: string): boolean {
-  const now = Date.now();
-  const windowStart = new Date(startsAt).getTime() - JOIN_OPENS_BEFORE_MINUTES * MINUTE_MS;
-  const windowEnd = new Date(endsAt).getTime() + JOIN_CLOSES_AFTER_MINUTES * MINUTE_MS;
-  return now >= windowStart && now <= windowEnd;
-}
 
 function formatSessionTime(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt);
