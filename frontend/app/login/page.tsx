@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { MailCheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CenteredCard } from "@/components/layout/CenteredCard";
 import { supabase } from "@/lib/supabase/client";
 import { PENDING_DISPLAY_NAME_KEY } from "@/lib/auth/pendingDisplayName";
@@ -31,24 +34,31 @@ export default function LoginPage() {
   if (status === "sent") {
     return (
       <CenteredCard title="Check your email">
-        <p className="text-sm text-muted-foreground">
-          We sent a sign-in link to {email}. Open it on this device to
-          continue.
-        </p>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <MailCheckIcon className="size-8 text-primary" />
+          <p className="text-sm text-muted-foreground">
+            We sent a sign-in link to <span className="font-medium text-foreground">{email}</span>.
+            Open it on this device to continue.
+          </p>
+          <Button variant="ghost" size="sm" onClick={() => setStatus("idle")}>
+            Use a different email
+          </Button>
+        </div>
       </CenteredCard>
     );
   }
 
   return (
-    <CenteredCard title="Sign in">
+    <CenteredCard
+      title="Sign in"
+      description="Enter your name and email to get a magic sign-in link."
+    >
       <form
         onSubmit={(event) => void handleSubmit(event)}
         className="flex flex-col gap-4"
       >
         <div className="flex flex-col gap-2">
-          <label htmlFor="displayName" className="text-sm font-medium">
-            Your name
-          </label>
+          <Label htmlFor="displayName">Your name</Label>
           <Input
             id="displayName"
             value={displayName}
@@ -57,9 +67,7 @@ export default function LoginPage() {
           />
         </div>
         <div className="flex flex-col gap-2">
-          <label htmlFor="email" className="text-sm font-medium">
-            Email
-          </label>
+          <Label htmlFor="email">Email</Label>
           <Input
             id="email"
             type="email"
@@ -72,9 +80,11 @@ export default function LoginPage() {
           {status === "sending" ? "Sending..." : "Send sign-in link"}
         </Button>
         {status === "error" && (
-          <p className="text-sm text-destructive">
-            Could not send the sign-in link. Try again.
-          </p>
+          <Alert variant="destructive">
+            <AlertDescription>
+              Could not send the sign-in link. Try again.
+            </AlertDescription>
+          </Alert>
         )}
       </form>
     </CenteredCard>

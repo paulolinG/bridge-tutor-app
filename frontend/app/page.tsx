@@ -1,31 +1,22 @@
-"use client";
-
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api/client";
+import { Button } from "@/components/ui/button";
 
-function StatusPage({ status }: { status: string }) {
+export default function Home() {
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <main className="flex flex-col items-center gap-4 text-center">
-        <h1 className="text-2xl font-semibold">Bridge AI</h1>
-        <p className="text-sm text-zinc-600">Backend status: {status}</p>
-        <Link href="/login" className="text-sm underline">
-          Tutor sign in
-        </Link>
+    <div className="flex flex-1 items-center justify-center p-4 sm:p-8">
+      <main className="flex max-w-md flex-col items-center gap-4 text-center">
+        <h1 className="font-heading text-3xl font-semibold tracking-tight">
+          Bridge AI
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Free AI-assisted tutoring for underserved communities, matching
+          certified volunteer tutors with students who need help.
+        </p>
+        <Button
+          nativeButton={false}
+          render={<Link href="/login">Tutor sign in</Link>}
+        />
       </main>
     </div>
   );
-}
-
-export default function Home() {
-  const { data, isPending, isError } = useQuery({
-    queryKey: ["health"],
-    queryFn: () => apiFetch<{ status: string }>("/health"),
-  });
-
-  if (isPending) return <StatusPage status="checking..." />;
-  if (isError) return <StatusPage status="unreachable" />;
-
-  return <StatusPage status={data.status} />;
 }

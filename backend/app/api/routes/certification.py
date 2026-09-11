@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_tutor
+from app.core.config import get_settings
 from app.core.personas import get_persona_by_key, get_persona_for_microtopic_label
 from app.db import certifications as certifications_db
 from app.db.microtopics import get_microtopic
@@ -136,6 +137,26 @@ async def send_message(
     return SendMessageResponse(reply=reply, turn_count=_tutor_turn_count(transcript))
 
 
+async def _complete_certification(
+    certification_id: UUID, tutor_id: UUID, microtopic_id: UUID, score: RubricScore
+) -> None:
+    """Grants the attempt's credit, then closes it out.
+
+    Credit-granting writes happen before mark_completed flips status to "completed" —
+    if one of these fails, the row is still "in_progress" and the attempt can be safely
+    retried, instead of the tutor being stuck with a completed-but-uncredited attempt.
+    """
+    if score.passed:
+        await asyncio.gather(
+            certifications_db.upsert_competency(tutor_id, microtopic_id, certification_id),
+            certifications_db.update_tutor_certification_status(tutor_id, "passed"),
+        )
+    else:
+        await certifications_db.update_tutor_certification_status(tutor_id, "failed")
+
+    await certifications_db.mark_completed(certification_id, score)
+
+
 @router.post("/{certification_id}/end")
 async def end_certification(
     certification_id: UUID,
@@ -157,20 +178,7 @@ async def end_certification(
         )
 
     score = await _score_transcript_or_503(transcript, persona)
-
-    # Credit-granting writes happen before mark_completed flips status to "completed" —
-    # if one of these fails, the row is still "in_progress" and /end can be safely retried,
-    # instead of the tutor being stuck with a completed-but-uncredited attempt.
-    microtopic_id = UUID(row["microtopic_id"])
-    if score.passed:
-        await asyncio.gather(
-            certifications_db.upsert_competency(tutor_id, microtopic_id, certification_id),
-            certifications_db.update_tutor_certification_status(tutor_id, "passed"),
-        )
-    else:
-        await certifications_db.update_tutor_certification_status(tutor_id, "failed")
-
-    await certifications_db.mark_completed(certification_id, score)
+    await _complete_certification(certification_id, tutor_id, UUID(row["microtopic_id"]), score)
 
     return EndCertificationResponse(score=score)
 
@@ -194,3 +202,50 @@ async def get_certification_state(
         min_turns_to_end=MIN_TURNS_TO_END,
         max_turns=MAX_TURNS,
     )
+
+
+BYPASS_RATIONALE: str = (
+    "Bypassed for local development. No teaching was assessed and this score "
+    "reflects no evaluation of the tutor."
+)
+
+BYPASS_SCORE: RubricScore = RubricScore(
+    subject_knowledge=14,
+    subject_knowledge_rationale=BYPASS_RATIONALE,
+    instructional_quality=28,
+    instructional_quality_rationale=BYPASS_RATIONALE,
+    pedagogical_adaptability=14,
+    pedagogical_adaptability_rationale=BYPASS_RATIONALE,
+    organization=14,
+    organization_rationale=BYPASS_RATIONALE,
+)
+
+
+@router.post("/{certification_id}/bypass")
+async def bypass_certification(
+    certification_id: UUID,
+    tutor_id: UUID = Depends(get_current_tutor),
+) -> EndCertificationResponse:
+    """Passes a certification without running the assessment. Local only.
+
+    Certification is the gate that exists because tutors work with minors, so
+    this is enforced on the server rather than in the UI: with the flag off no
+    caller can pass a certification through it, whatever the frontend shows.
+    An authenticated caller gets a 404 rather than a 403, so the response does
+    not confirm that a disabled bypass is merely switched off.
+
+    Raises:
+        HTTPException: 404 if the bypass is disabled or the attempt is
+            unknown, 400 if the attempt is already completed.
+    """
+    if not get_settings().dev_allow_certification_bypass:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    row = await _get_owned_certification(certification_id, tutor_id)
+    if row["status"] != "in_progress":
+        raise HTTPException(status_code=400, detail="Certification already completed")
+
+    await _complete_certification(
+        certification_id, tutor_id, UUID(row["microtopic_id"]), BYPASS_SCORE
+    )
+    return EndCertificationResponse(score=BYPASS_SCORE)

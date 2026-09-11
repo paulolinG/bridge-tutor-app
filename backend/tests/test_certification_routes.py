@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api import deps
 from app.api.routes import certification as certification_routes
+from app.core.config import get_settings
 from app.core.personas import PERSONAS
 from app.main import app
 from app.models.rubric import RubricScore
@@ -311,3 +312,65 @@ def test_get_certification_state_returns_score_when_completed(
     assert body["score"]["total_score"] == 86
     assert body["score"]["passed"] is True
     assert body["min_turns_to_end"] == certification_routes.MIN_TURNS_TO_END
+
+
+def _set_bypass(monkeypatch, enabled: bool) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("DEV_ALLOW_CERTIFICATION_BYPASS", "true" if enabled else "false")
+
+
+def test_bypass_is_invisible_when_the_flag_is_off(monkeypatch, client: TestClient) -> None:
+    # 404 rather than 403: a probe against a real deployment should not be
+    # able to tell that a way past certification exists at all.
+    _set_bypass(monkeypatch, False)
+
+    response = client.post(f"/certifications/{CERT_ID}/bypass")
+
+    assert response.status_code == 404
+    get_settings.cache_clear()
+
+
+def test_bypass_grants_a_passing_certification(monkeypatch, client: TestClient) -> None:
+    _set_bypass(monkeypatch, True)
+
+    async def fake_get_certification(certification_id) -> dict:
+        return _row()
+
+    competencies: list = []
+    statuses: list = []
+    completed: list = []
+
+    async def fake_upsert_competency(tutor_id, microtopic_id, certification_id) -> None:
+        competencies.append(tutor_id)
+
+    async def fake_update_status(tutor_id, status) -> None:
+        statuses.append(status)
+
+    async def fake_mark_completed(certification_id, score) -> None:
+        completed.append(score)
+
+    monkeypatch.setattr(
+        certification_routes.certifications_db, "get_certification", fake_get_certification
+    )
+    monkeypatch.setattr(
+        certification_routes.certifications_db, "upsert_competency", fake_upsert_competency
+    )
+    monkeypatch.setattr(
+        certification_routes.certifications_db,
+        "update_tutor_certification_status",
+        fake_update_status,
+    )
+    monkeypatch.setattr(
+        certification_routes.certifications_db, "mark_completed", fake_mark_completed
+    )
+
+    response = client.post(f"/certifications/{CERT_ID}/bypass")
+
+    assert response.status_code == 200
+    assert response.json()["score"]["passed"] is True
+    assert statuses == ["passed"]
+    assert len(competencies) == 1
+    # The stored rationales say plainly that nothing was assessed, so a
+    # bypassed attempt is never mistaken for a real one.
+    assert "bypass" in completed[0].subject_knowledge_rationale.lower()
+    get_settings.cache_clear()

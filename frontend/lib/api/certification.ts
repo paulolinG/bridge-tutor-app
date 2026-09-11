@@ -42,3 +42,11 @@ export function getCertificationState(
 ): Promise<CertificationState> {
   return apiFetch<CertificationState>(`/certifications/${certificationId}`);
 }
+
+export function bypassCertification(
+  certificationId: string,
+): Promise<EndCertificationResponse> {
+  return postJson<EndCertificationResponse>(
+    `/certifications/${certificationId}/bypass`,
+  );
+}

@@ -8,10 +8,10 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
     <div className={cn("flex", isTutor ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[75%] rounded-2xl px-4 py-2 text-sm",
+          "max-w-[75%] rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap",
           isTutor
             ? "bg-primary text-primary-foreground"
-            : "bg-muted text-muted-foreground",
+            : "bg-muted text-foreground",
         )}
       >
         {message.content}

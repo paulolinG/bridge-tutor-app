@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { LoaderCircleIcon } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CenteredCard } from "@/components/layout/CenteredCard";
 import { supabase } from "@/lib/supabase/client";
 import { ensureTutorProfile } from "@/lib/api/tutors";
 import { PENDING_DISPLAY_NAME_KEY } from "@/lib/auth/pendingDisplayName";
@@ -71,18 +74,25 @@ export default function AuthCallbackPage() {
 
   if (error) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <p className="text-sm text-destructive">{error}</p>
-        <Link href="/login" className="text-sm underline">
+      <CenteredCard title="Sign-in problem">
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        <Link href="/login" className="text-center text-sm underline">
           Back to sign in
         </Link>
-      </div>
+      </CenteredCard>
     );
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <p className="text-sm">Signing you in...</p>
-    </div>
+    <CenteredCard title="Signing you in">
+      <div className="flex flex-col items-center gap-3 py-4 text-center">
+        <LoaderCircleIcon className="size-6 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">
+          Just a moment while we finish setting up your account.
+        </p>
+      </div>
+    </CenteredCard>
   );
 }

@@ -25,23 +25,28 @@ export function ChatInput({
   }
 
   return (
-    <div className="flex gap-2">
-      <Textarea
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void handleSend();
-          }
-        }}
-        placeholder="Respond as the tutor..."
-        disabled={disabled}
-        className="min-h-[60px] resize-none"
-      />
-      <Button onClick={() => void handleSend()} disabled={disabled || !value.trim()}>
-        Send
-      </Button>
+    <div className="flex flex-col gap-1">
+      <div className="flex items-end gap-2">
+        <Textarea
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void handleSend();
+            }
+          }}
+          placeholder="Respond as the tutor..."
+          disabled={disabled}
+          className="min-h-[60px] resize-none"
+        />
+        <Button onClick={() => void handleSend()} disabled={disabled || !value.trim()}>
+          Send
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Enter to send · Shift+Enter for a new line
+      </p>
     </div>
   );
 }
