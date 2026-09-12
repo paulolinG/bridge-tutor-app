@@ -1,15 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import {
-  Tldraw,
-  getSnapshot,
-  loadSnapshot,
-  type Editor,
-  type TLRecord,
-  type TLStoreSnapshot,
-} from "tldraw";
+import { useEffect, useRef, useState } from "react";
+import { Tldraw, getSnapshot, type Editor, type TLRecord, type TLStoreSnapshot } from "tldraw";
 import "tldraw/tldraw.css";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Whiteboard, WhiteboardSnapshot } from "@/lib/types/session";
 
 const SNAPSHOT_SAVE_DEBOUNCE_MS: number = 3000;
@@ -20,9 +14,9 @@ interface WhiteboardDiffPayload {
   removed: TLRecord["id"][];
 }
 
-// What a persisted snapshot has to look like for `loadSnapshot` to take its
-// `TLStoreSnapshot` branch. Anything else reaches `migrateStoreSnapshot`,
-// which throws on failure.
+// What a persisted snapshot has to look like to be a `TLStoreSnapshot`.
+// Anything else is discarded rather than handed to tldraw, which throws on a
+// snapshot it cannot migrate.
 function isStoreSnapshot(
   snapshot: WhiteboardSnapshot,
 ): snapshot is WhiteboardSnapshot & TLStoreSnapshot {
@@ -48,19 +42,57 @@ export function SessionWhiteboard({
   const editorRef = useRef<Editor | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
-  const hasRemoteChangesRef = useRef(false);
+
+  // Diffs that arrive while the saved snapshot is still loading. The editor
+  // does not exist yet to receive them, and dropping them would silently
+  // diverge the two boards.
+  const pendingDiffsRef = useRef<WhiteboardDiffPayload[]>([]);
+
+  // The stored snapshot is applied by constructing the editor around it, not
+  // by loading it into a running one: `loadSnapshot` swaps the store out from
+  // under a mounted editor, and a failure there crashes the editor into an
+  // empty container rather than degrading to a blank board.
+  const [initialSnapshot, setInitialSnapshot] = useState<TLStoreSnapshot | null | undefined>();
+
+  // `getWhiteboard` is an inline closure from the page, so it is a new
+  // function every render. Capturing the mount-time one keeps the fetch keyed
+  // to mount instead of re-firing on every render.
+  const getWhiteboardRef = useRef(getWhiteboard);
+
+  useEffect(() => {
+    let active = true;
+    getWhiteboardRef
+      .current()
+      .then(({ snapshot }) => {
+        if (!active) return;
+        setInitialSnapshot(snapshot && isStoreSnapshot(snapshot) ? snapshot : null);
+      })
+      .catch(() => {
+        // An unreachable backend must not cost the session its whiteboard.
+        if (active) setInitialSnapshot(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function applyDiff(editor: Editor, { added, updated, removed }: WhiteboardDiffPayload) {
+    editor.store.mergeRemoteChanges(() => {
+      if (added.length || updated.length) editor.store.put([...added, ...updated]);
+      if (removed.length) editor.store.remove(removed);
+    });
+  }
 
   useEffect(
     () =>
       on("whiteboard-diff", (payload) => {
+        const diff = payload as WhiteboardDiffPayload;
         const editor = editorRef.current;
-        if (!editor) return;
-        hasRemoteChangesRef.current = true;
-        const { added, updated, removed } = payload as WhiteboardDiffPayload;
-        editor.store.mergeRemoteChanges(() => {
-          if (added.length || updated.length) editor.store.put([...added, ...updated]);
-          if (removed.length) editor.store.remove(removed);
-        });
+        if (!editor) {
+          pendingDiffsRef.current.push(diff);
+          return;
+        }
+        applyDiff(editor, diff);
       }),
     [on],
   );
@@ -76,22 +108,8 @@ export function SessionWhiteboard({
   function handleMount(editor: Editor) {
     editorRef.current = editor;
 
-    void getWhiteboard()
-      .then(({ snapshot }) => {
-        // The board is live and editable while this request is in flight, so
-        // anything drawn or received meanwhile outranks a snapshot that was
-        // already stale when it was sent.
-        if (!snapshot || editorRef.current !== editor) return;
-        if (hasRemoteChangesRef.current) return;
-        if (editor.store.query.records("shape").get().length) return;
-        if (!isStoreSnapshot(snapshot)) return;
-        loadSnapshot(editor.store, snapshot);
-      })
-      .catch(() => {
-        // `loadSnapshot` throws on a snapshot it cannot migrate, and the throw
-        // tears the canvas down to an empty tl-container. Losing a saved
-        // drawing is bad; losing the whiteboard mid-session is worse.
-      });
+    for (const diff of pendingDiffsRef.current) applyDiff(editor, diff);
+    pendingDiffsRef.current = [];
 
     unlistenRef.current = editor.store.listen(
       (entry) => {
@@ -119,7 +137,11 @@ export function SessionWhiteboard({
 
   return (
     <div className="relative flex-1 overflow-hidden rounded-lg border">
-      <Tldraw onMount={handleMount} />
+      {initialSnapshot === undefined ? (
+        <Skeleton className="size-full" />
+      ) : (
+        <Tldraw snapshot={initialSnapshot ?? undefined} onMount={handleMount} />
+      )}
     </div>
   );
 }
